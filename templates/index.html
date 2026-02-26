@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>네이버 쇼핑 최저가 비교</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- 헤더 -->
+        <header class="header">
+            <div class="header-content">
+                <div class="header-text">
+                    <h1>🛍️ 네이버 쇼핑 최저가 비교</h1>
+                    <p>상품을 검색하여 최저가를 한눈에 확인하세요</p>
+                </div>
+                <div class="header-contact">
+                    <a href="mailto:nansadancer@naver.com" class="contact-link">
+                        <span class="contact-icon">✉️</span>
+                        <span class="contact-text">문의하기</span>
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <!-- 검색 영역 -->
+        <section class="search-section">
+            <div class="search-box">
+                <input 
+                    type="text" 
+                    id="searchInput" 
+                    placeholder="검색할 상품명을 입력하세요 (예: 상품명과 모델명까지 넣어주세요)"
+                    autocomplete="off"
+                >
+                <button id="searchBtn" class="search-btn">검색</button>
+            </div>
+            <div class="search-options">
+                <label>표시할 상품 수:</label>
+                <select id="displayCount">
+                    <option value="5">5개</option>
+                    <option value="10" selected>10개</option>
+                    <option value="20">20개</option>
+                </select>
+            </div>
+        </section>
+
+        <!-- 로딩 상태 -->
+        <div id="loadingSpinner" class="loading-spinner" style="display: none;">
+            <div class="spinner"></div>
+            <p>검색 중입니다...</p>
+        </div>
+
+        <!-- 에러 메시지 -->
+        <div id="errorMessage" class="error-message" style="display: none;"></div>
+
+        <!-- 최저가 카드 -->
+        <section id="lowestPriceSection" class="lowest-price-section" style="display: none;">
+            <h2>🏆 최저가 상품</h2>
+            <div id="lowestPriceCard" class="price-card lowest-card">
+                <img id="lowestImage" src="" alt="상품 이미지" class="card-image">
+                <div class="card-content">
+                    <h3 id="lowestTitle"></h3>
+                    <div class="price-info">
+                        <span class="lowest-label">최저가</span>
+                        <span id="lowestPrice" class="price"></span>
+                    </div>
+                    <a id="lowestLink" href="" target="_blank" class="card-link">쇼핑몰 바로가기</a>
+                </div>
+            </div>
+        </section>
+
+        <!-- 가격 범위 정보 -->
+        <section id="priceRangeSection" class="price-range-section" style="display: none;">
+            <div class="price-range-box">
+                <div class="range-item">
+                    <span class="range-label">최저가:</span>
+                    <span id="minPrice" class="range-value"></span>
+                </div>
+                <div class="range-item">
+                    <span class="range-label">최고가:</span>
+                    <span id="maxPrice" class="range-value"></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 관련 상품 목록 -->
+        <section id="itemsSection" class="items-section" style="display: none;">
+            <h2>📦 관련 상품 목록</h2>
+            <div id="itemsList" class="items-grid"></div>
+        </section>
+
+        <!-- 검색 통계 -->
+        <section id="statsSection" class="stats-section" style="display: none;">
+            <p id="statsText"></p>
+        </section>
+    </div>
+
+    <script>
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const displayCount = document.getElementById('displayCount');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const errorMessage = document.getElementById('errorMessage');
+        const lowestPriceSection = document.getElementById('lowestPriceSection');
+        const itemsSection = document.getElementById('itemsSection');
+        const priceRangeSection = document.getElementById('priceRangeSection');
+        const statsSection = document.getElementById('statsSection');
+
+        // Enter 키로 검색
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+
+        // 검색 버튼 클릭
+        searchBtn.addEventListener('click', performSearch);
+
+        async function performSearch() {
+            const query = searchInput.value.trim();
+            const display = displayCount.value;
+
+            if (!query) {
+                showError('검색어를 입력하세요');
+                return;
+            }
+
+            // UI 초기화
+            hideAllSections();
+            showLoading();
+            clearError();
+
+            try {
+                const response = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        display: parseInt(display)
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    showError(data.error || '검색에 실패했습니다');
+                    return;
+                }
+
+                // 최저가 카드 표시
+                displayLowestPrice(data.lowestPrice);
+
+                // 가격 범위 표시
+                displayPriceRange(data.priceRange);
+
+                // 상품 목록 표시
+                displayItems(data.items);
+
+                // 통계 표시
+                displayStats(data.query, data.items.length, data.total);
+
+            } catch (error) {
+                showError('네트워크 오류: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function displayLowestPrice(item) {
+            if (!item) return;
+
+            document.getElementById('lowestImage').src = item.image || 'https://via.placeholder.com/200';
+            document.getElementById('lowestTitle').textContent = stripHtml(item.title);
+            document.getElementById('lowestPrice').textContent = formatPrice(item.lprice);
+            document.getElementById('lowestLink').href = item.link;
+
+            lowestPriceSection.style.display = 'block';
+        }
+
+        function displayPriceRange(priceRange) {
+            document.getElementById('minPrice').textContent = formatPrice(priceRange.min);
+            document.getElementById('maxPrice').textContent = formatPrice(priceRange.max);
+            priceRangeSection.style.display = 'block';
+        }
+
+        function displayItems(items) {
+            const itemsList = document.getElementById('itemsList');
+            itemsList.innerHTML = '';
+
+            items.forEach((item, index) => {
+                const card = document.createElement('div');
+                card.className = 'item-card';
+                if (index === 0) card.classList.add('highlight'); // 첫 번째 상품 강조
+
+                card.innerHTML = `
+                    <img src="${item.image || 'https://via.placeholder.com/150'}" alt="${stripHtml(item.title)}" class="item-image">
+                    <div class="item-info">
+                        <h4 class="item-title">${stripHtml(item.title)}</h4>
+                        <p class="item-brand">${item.brand || '브랜드 미정보'}</p>
+                        <p class="item-mall">${item.mallName || '쇼핑몰 미정보'}</p>
+                        <div class="item-price">
+                            <span class="item-price-value">${formatPrice(item.lprice)}</span>
+                        </div>
+                        <a href="${item.link}" target="_blank" class="item-link">상세보기</a>
+                    </div>
+                `;
+
+                itemsList.appendChild(card);
+            });
+
+            itemsSection.style.display = 'block';
+        }
+
+        function displayStats(query, count, total) {
+            const statsText = document.getElementById('statsText');
+            statsText.textContent = `"${query}"에 대해 총 ${total.toLocaleString()}개의 상품 중 ${count}개를 표시합니다`;
+            statsSection.style.display = 'block';
+        }
+
+        function formatPrice(price) {
+            return `₩${Number(price).toLocaleString()}`;
+        }
+
+        function stripHtml(text) {
+            const div = document.createElement('div');
+            div.innerHTML = text;
+            return div.textContent || div.innerText || '';
+        }
+
+        function showLoading() {
+            loadingSpinner.style.display = 'flex';
+        }
+
+        function hideLoading() {
+            loadingSpinner.style.display = 'none';
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+
+        function clearError() {
+            errorMessage.style.display = 'none';
+        }
+
+        function hideAllSections() {
+            lowestPriceSection.style.display = 'none';
+            itemsSection.style.display = 'none';
+            priceRangeSection.style.display = 'none';
+            statsSection.style.display = 'none';
+        }
+    </script>
+</body>
+</html>
